@@ -1,4 +1,3 @@
-
 #include <webots/robot.h>
 #include <webots/motor.h>
 #include <webots/distance_sensor.h>
@@ -6,29 +5,19 @@
 #include <webots/led.h>
 #include <stdio.h>
 
-// Time step for the simulation loop in milliseconds
-#define TIME_STEP 64 
-
-// Maximum speed for the motors
+#define TIME_STEP 64
 #define MAX_SPEED 6.28
-
-// Total duration of the simulation in seconds
-#define SIMULATION_DURATION 375.4
-
-// Interval at which data is recorded in seconds
-#define RECORD_INTERVAL 1
-
-// Number of light sensors used in the robot
+#define SIMULATION_DURATION 375.4  // 6 minutes in seconds
+#define RECORD_INTERVAL 1          // Record every second
 #define NUM_LIGHT_SENSORS 8
 
-// Function to detect walls using distance sensors
 void detect_wall(WbDeviceTag *ps, int *front_left, int *front_right, int *side_left, int *side_right) {
     double ps_values[8];
     for (int i = 0; i < 8; i++) {
         ps_values[i] = wb_distance_sensor_get_value(ps[i]);
     }
 
-    *front_left = ps_values[7] > 80; //treshold values 
+    *front_left = ps_values[7] > 80;
     *front_right = ps_values[0] > 80;
     *side_left = ps_values[6] > 120;
     *side_right = ps_values[1] > 120;
@@ -37,16 +26,22 @@ void detect_wall(WbDeviceTag *ps, int *front_left, int *front_right, int *side_l
 int main() {
     wb_robot_init();
 
-    // Initialize motors
+    // Initialize motor devices
     WbDeviceTag left_motor = wb_robot_get_device("left wheel motor");
     WbDeviceTag right_motor = wb_robot_get_device("right wheel motor");
     wb_motor_set_position(left_motor, INFINITY);
     wb_motor_set_position(right_motor, INFINITY);
 
-    // Initialize LED
-    WbDeviceTag led_top = wb_robot_get_device("led7");
-    wb_led_set(led_top, 1);
-    wb_led_set(led_top, 0);
+    // Initialize LED (specific to e-puck robots)
+    // Initialize the top LED
+WbDeviceTag led_top = wb_robot_get_device("led7");
+
+// To turn the LED on
+wb_led_set(led_top, 1);
+
+// To turn the LED off
+wb_led_set(led_top, 0); 
+
 
     // Initialize distance sensors
     WbDeviceTag ps[8];
@@ -65,28 +60,37 @@ int main() {
         wb_light_sensor_enable(ls[i], TIME_STEP);
     }
 
+    // Variables to store sensor detection results
     int front_left, front_right, side_left, side_right;
+
+    // Time tracking variables
     double total_distance = 0.0;
     double previous_time = wb_robot_get_time();
     double current_time;
 
-    // Arrays to store light sensor values, times, and distances
+    // Data recording variables
     double light_values[NUM_LIGHT_SENSORS];
-    double recorded_light_avg[360]; // Matrix to store average light values
-    double recorded_times[360];     // Matrix to store recorded times
-    double recorded_distances[360]; // Matrix to store recorded distances
+    double recorded_light_avg[360];  // Max 360 records (1 sec interval)
+    double recorded_times[360];       // Store times for each record
+    double recorded_distances[360];   // Store distances for each record
     int record_count = 0;
 
+    // Declare motor speed variables for both phases
     double left_motor_speed = 0.0;
     double right_motor_speed = 0.0;
 
-    // Main loop
+    // Main loop (Phase 1)
     while (wb_robot_step(TIME_STEP) != -1) {
+        // Detect walls using proximity sensors
         detect_wall(ps, &front_left, &front_right, &side_left, &side_right);
+
+        // Get current simulation time
         current_time = wb_robot_get_time();
+
+        
         previous_time = current_time;
 
-        // Wall avoidance logic
+        // Wall avoidance and following logic
         if (front_left || front_right) {
             left_motor_speed = -0.3 * MAX_SPEED;
             right_motor_speed = 0.3 * MAX_SPEED;
@@ -104,15 +108,16 @@ int main() {
             right_motor_speed = 0.3 * MAX_SPEED;
         }
 
+        // Set motor speeds
         wb_motor_set_velocity(left_motor, left_motor_speed);
         wb_motor_set_velocity(right_motor, right_motor_speed);
 
-        // Calculate distance traveled
+        // Calculate distance traveled during this step
         double avg_speed = (left_motor_speed + right_motor_speed) / 2.0;
         double distance_step = avg_speed * (TIME_STEP / 1000.0);
         total_distance += distance_step;
 
-        // Record data at intervals
+        // Record data every second
         if (current_time >= RECORD_INTERVAL * (record_count + 1)) {
             double total_light_value = 0.0;
             for (int i = 0; i < NUM_LIGHT_SENSORS; i++) {
@@ -120,15 +125,17 @@ int main() {
                 total_light_value += light_values[i];
             }
             double avg_light_value = total_light_value / NUM_LIGHT_SENSORS;
-            recorded_light_avg[record_count] = avg_light_value; // Save average light value
-            recorded_times[record_count] = current_time;        // Save current time
-            recorded_distances[record_count] = total_distance;  // Save total distance
+
+            // Store the average light value, corresponding time, and distance
+            recorded_light_avg[record_count] = avg_light_value;
+            recorded_times[record_count] = current_time;
+            recorded_distances[record_count] = total_distance;
             record_count++;
             printf("Recorded data at %.2f seconds: Avg Light Value = %.2f, Total Distance = %.2f\n",
                    current_time, avg_light_value, total_distance);
         }
 
-        // Stop simulation after duration
+        // Stop after 6 minutes
         if (current_time >= SIMULATION_DURATION) {
             wb_motor_set_velocity(left_motor, 0);
             wb_motor_set_velocity(right_motor, 0);
@@ -136,8 +143,8 @@ int main() {
         }
     }
 
-    // Find minimum light value
-    double min_light_value = 1e6;
+    // Find the minimum light value and its time and distance
+    double min_light_value = 1e6; // Set to a high initial value
     double min_time = 0.0;
     double min_distance = 0.0;
 
@@ -149,16 +156,18 @@ int main() {
         }
     }
 
-    printf("Max Light Value: %.2f at %.2f seconds, Distance traveled: %.2f meters\n",
+    // Display results
+    printf("Min Light Value: %.2f at %.2f seconds, Distance traveled: %.2f meters\n",
            min_light_value, min_time, min_distance);
 
+    // Phase 2: Return to the high-light-intensity area
     printf("Navigating back to the high-intensity area...\n");
     double target_time = min_time;
 
-    previous_time = wb_robot_get_time();
+    previous_time = wb_robot_get_time(); // Reset time for the return journey
 
-    // Navigate back to high-intensity area
     while (wb_robot_step(TIME_STEP) != -1 && (wb_robot_get_time() - previous_time) < target_time) {
+        // Continue wall-following, similar to Phase 1, to reach a similar area
         detect_wall(ps, &front_left, &front_right, &side_left, &side_right);
 
         if (front_left || front_right) {
@@ -182,25 +191,13 @@ int main() {
         wb_motor_set_velocity(right_motor, right_motor_speed);
     }
 
-    // Indicate mission completion
-    printf("Reached high light intensity area, blinking LED red ... mission done...\n");
-    wb_led_set(led_top, 1);
-
-    // Spin to indicate completion
-    double spin_speed = 4.0;
-    wb_motor_set_velocity(left_motor, spin_speed);
-    wb_motor_set_velocity(right_motor, -spin_speed);
-
-    double start_time = wb_robot_get_time();
-
-    // Spin for 5 seconds
-    while (wb_robot_get_time() - start_time < 5.0) {
-        wb_robot_step(TIME_STEP);
-    }
-
-    // Stop motors after spinning
+    // Stop at the target location
     wb_motor_set_velocity(left_motor, 0);
     wb_motor_set_velocity(right_motor, 0);
+
+    // Blink LED red at target location
+    printf("Reached high light intensity area, blinking LED red...\n");
+    wb_led_set(led_top, 1);
 
     wb_robot_cleanup();
     return 0;
